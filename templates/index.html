@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Smart Gate Access System</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&family=Orbitron:wght@600&display=swap" rel="stylesheet">
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      height: 100vh;
+      background: linear-gradient(135deg, #0f2027, #203a43, #2c5364);
+      font-family: 'Inter', sans-serif;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      color: #fff;
+      animation: fadeIn 1s ease-in-out;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: scale(0.98); }
+      to { opacity: 1; transform: scale(1); }
+    }
+
+    .container {
+      background: rgba(255, 255, 255, 0.07);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 20px;
+      padding: 40px 35px;
+      width: 100%;
+      max-width: 620px;
+      backdrop-filter: blur(30px);
+      box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4);
+      transition: transform 0.3s ease;
+    }
+
+    .container:hover {
+      transform: translateY(-5px);
+    }
+
+    h1 {
+      font-family: 'Orbitron', sans-serif;
+      font-size: 3rem;
+      text-align: center;
+      margin-bottom: 35px;
+      color: #ffffffcc;
+      letter-spacing: 1px;
+    }
+
+    .camera-box {
+      width: 100%;
+      height: 320px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 2px dashed rgba(255, 255, 255, 0.2);
+      border-radius: 18px;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+      margin-bottom: 30px;
+      transition: border-color 0.3s ease;
+    }
+
+    .camera-box:hover {
+      border-color: rgba(255, 255, 255, 0.4);
+    }
+
+    .camera-box img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      filter: brightness(1.05);
+    }
+
+    .status-box {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      padding: 20px 30px;
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      border-radius: 16px;
+      font-size: 1.5rem;
+      gap: 18px;
+      font-weight: 600;
+      letter-spacing: 1px;
+      box-shadow: inset 0 0 8px rgba(0,0,0,0.1);
+      transition: background 0.3s ease, box-shadow 0.3s ease;
+    }
+
+    .status-icon.locked {
+      color: #ff4d4d;
+      transition: color 0.3s ease;
+    }
+
+    .status-icon.unlocked {
+      color: #4dff88;
+      transition: color 0.3s ease;
+    }
+
+    .locked {
+      color: #ff4d4d;
+    }
+
+    .unlocked {
+      color: #4dff88;
+    }
+
+    @media (max-width: 640px) {
+      h1 {
+        font-size: 2.2rem;
+      }
+      .camera-box {
+        height: 220px;
+      }
+      .status-box {
+        font-size: 1.2rem;
+        padding: 15px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Smart Gate Access</h1>
+    <div style="display: flex; justify-content: center; gap: 20px; margin-bottom: 30px;">
+      <button onclick="toggleFlash('on')" style="padding: 10px 20px; font-weight: bold; border-radius: 10px; border: none; background: #4dff88; color: #000; cursor: pointer;">
+        Flash On
+      </button>
+      <button onclick="toggleFlash('off')" style="padding: 10px 20px; font-weight: bold; border-radius: 10px; border: none; background: #ff4d4d; color: #fff; cursor: pointer;">
+        Flash Off
+      </button>
+    </div>
+    
+
+    <div class="camera-box">
+      <img src="{{ url_for('video_feed') }}" alt="Live Feed" />
+    </div>
+
+    <div class="status-box">
+      <span class="status-icon locked">🔒</span>
+      <span class="locked">LOCKED</span>
+    </div>
+  </div>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.0/socket.io.min.js"></script>
+
+  <script>
+    
+
+
+function toggleFlash(state) {
+  fetch(`/flash/${state}`, { method: 'POST' })
+    .then(res => {
+      if (!res.ok) throw new Error('Failed to toggle flash');
+      console.log(`Flash ${state} signal sent.`);
+    })
+    .catch(err => console.error(err));
+}
+
+    function updateStatus() {
+      fetch('/status')
+        .then(res => res.text())
+        .then(status => {
+          console.log("Status:", status); 
+          const statusBox = document.querySelector('.status-box');
+          const icon = statusBox.querySelector('.status-icon');
+          const text = statusBox.querySelector('span:last-child');
+
+          if (status === 'UNLOCKED') {
+            icon.textContent = '🔓';
+            icon.classList.remove('locked');
+            icon.classList.add('unlocked');
+            text.textContent = 'UNLOCKED';
+            text.classList.remove('locked');
+            text.classList.add('unlocked');
+          } else {
+            icon.textContent = '🔒';
+            icon.classList.remove('unlocked');
+            icon.classList.add('locked');
+            text.textContent = 'LOCKED';
+            text.classList.remove('unlocked');
+            text.classList.add('locked');
+          }
+        });
+    }
+    document.addEventListener('DOMContentLoaded', function () {
+  setInterval(updateStatus, 2000); // Updates status every 2 seconds
+  updateStatus(); });
+  </script>
+</body>
+</html>

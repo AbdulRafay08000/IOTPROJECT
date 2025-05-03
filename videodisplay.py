@@ -1,0 +1,132 @@
+from flask import Flask, render_template, Response
+from flask import request
+
+import cv2
+import numpy as np
+import paho.mqtt.client as mqtt
+import threading
+
+app = Flask(__name__)
+
+# MQTT Setup
+BROKER = "mqtt.flespi.io"
+PORT = 1883
+USERNAME = "d8MKDVUYFwUGNef1uUZGpurUfG6WKkJCFshWJRn6KelFQBa2dmNwBltrpyU35B2M"
+PASSWORD = ""
+
+frame_data = {}
+expected_chunks = 0
+image_size = 0
+latest_frame = None
+lock_status = "LOCKED"
+door_closed = True
+
+face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
+
+def on_connect(client, userdata, flags, rc):
+    print("Connected to MQTT:", rc)
+    client.subscribe("camera/#")
+
+def on_message(client, userdata, msg):
+    global expected_chunks, image_size, frame_data, latest_frame, lock_status, door_closed
+
+    topic = msg.topic
+    payload = msg.payload
+
+    if topic == "door/closed":
+        message = payload.decode().strip().lower()
+        door_closed = (message == "true")  # update based on the message
+        return  # nothing else to do here
+
+    if topic == "camera/metadata":
+        meta = payload.decode().split(",")
+        image_size = int(meta[0])
+        expected_chunks = (image_size + 2047) // 2048
+        frame_data.clear()
+
+    elif topic.startswith("camera/chunk/c"):
+        try:
+            index = int(topic.split("c")[-1])
+            frame_data[index] = payload
+        except:
+            pass
+
+    elif topic == "camera/frame/end":
+        if len(frame_data) < expected_chunks:
+            print("Incomplete frame")
+            return
+
+        image_bytes = b''.join(frame_data[i] for i in sorted(frame_data))
+        np_arr = np.frombuffer(image_bytes, dtype=np.uint8)
+        img = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+
+        if img is not None:
+            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+            faces = face_cascade.detectMultiScale(gray, 1.1, 4)
+
+            for (x, y, w, h) in faces:
+                cv2.rectangle(img, (x, y), (x+w, y+h), (0, 255, 0), 2)
+
+            if len(faces) > 0 and door_closed:
+                lock_status = "UNLOCKED"
+                client.publish("face/detected", "true")
+            else:
+                lock_status = "LOCKED"
+            print(f"Lock status: {lock_status}")
+
+            ret, jpeg = cv2.imencode('.jpg', img)
+            if ret:
+                latest_frame = jpeg.tobytes()
+
+        frame_data.clear()
+
+
+# MQTT Client in background thread
+mqtt_client = mqtt.Client()
+mqtt_client.username_pw_set(USERNAME, PASSWORD)
+mqtt_client.on_connect = on_connect
+mqtt_client.on_message = on_message
+
+def mqtt_loop():
+    mqtt_client.connect(BROKER, PORT, 60)
+    mqtt_client.loop_forever()
+
+threading.Thread(target=mqtt_loop, daemon=True).start()
+
+# Flask Routes
+@app.route('/')
+def index():
+    return render_template('index.html', lock_status=lock_status)
+
+def generate_stream():
+    global latest_frame
+    while True:
+        if latest_frame:
+            yield (b'--frame\r\n'
+                   b'Content-Type: image/jpeg\r\n\r\n' + latest_frame + b'\r\n')
+        else:
+            continue
+
+@app.route('/video_feed')
+def video_feed():
+    return Response(generate_stream(),
+                    mimetype='multipart/x-mixed-replace; boundary=frame')
+
+@app.route('/status')
+def status():
+    return lock_status
+@app.route('/flash/<state>', methods=['POST'])
+def flash_control(state):
+    if state == "on":
+        print("Flash On")
+        mqtt_client.publish("flash/control", "1")
+        
+    elif state == "off":
+        print("Flash OFF")
+        mqtt_client.publish("flash/control", "0")
+    else:
+        return "Invalid flash state", 400
+    return "OK", 200
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=5000)
